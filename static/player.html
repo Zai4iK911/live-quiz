@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Live Quiz – Player</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui,Segoe UI,Arial;
+  background:linear-gradient(135deg,#4f46e5,#9333ea);
+  color:white;
+}
+
+.container{
+  max-width:600px;
+  margin:auto;
+  padding:20px;
+}
+
+.card{
+  background:rgba(255,255,255,0.1);
+  border-radius:18px;
+  padding:20px;
+  margin-bottom:20px;
+}
+
+input{
+  width:100%;
+  padding:12px;
+  border-radius:12px;
+  border:none;
+  margin-bottom:10px;
+  font-size:16px;
+}
+
+button{
+  width:100%;
+  border:none;
+  border-radius:16px;
+  padding:16px;
+  font-size:18px;
+  margin:8px 0;
+  cursor:pointer;
+}
+
+.answer0{background:#ef4444;}
+.answer1{background:#3b82f6;}
+.answer2{background:#22c55e;}
+.answer3{background:#f59e0b;}
+
+button:disabled{
+  opacity:0.5;
+  cursor:default;
+}
+
+.list div{
+  padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,0.2);
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>📱 Player</h1>
+
+<div id="joinBox" class="card">
+  <input id="pinInput" placeholder="PIN">
+  <input id="nameInput" placeholder="Імʼя">
+  <button id="joinBtn">Увійти</button>
+</div>
+
+<div id="gameBox" style="display:none">
+
+  <div class="card">
+    <h2 id="question"></h2>
+    <div id="answers"></div>
+    <p id="timer"></p>
+    <p id="status"></p>
+  </div>
+
+  <div class="card">
+    <h3>Рейтинг</h3>
+    <div id="leaderboard" class="list"></div>
+  </div>
+
+</div>
+
+</div>
+
+<script>
+const socket = io();
+
+let pin = localStorage.getItem("pin");
+let playerToken = localStorage.getItem("player_token");
+
+let endsAt = null;
+let timer = null;
+let answered = false;
+
+const answersEl = document.getElementById("answers");
+const lbEl = document.getElementById("leaderboard");
+
+document.getElementById("joinBtn").onclick = ()=>{
+  const p = document.getElementById("pinInput").value.trim();
+  const n = document.getElementById("nameInput").value.trim();
+
+  socket.emit("join_room",{pin:p,name:n});
+};
+
+function renderLeaderboard(list){
+  lbEl.innerHTML="";
+  list.forEach((p,i)=>{
+    const d=document.createElement("div");
+    d.textContent=`${i+1}. ${p.name} — ${p.score}`;
+    lbEl.appendChild(d);
+  });
+}
+
+function disableAnswers(){
+  [...answersEl.querySelectorAll("button")].forEach(b=>b.disabled=true);
+}
+
+function startTimer(){
+  stopTimer();
+  timer=setInterval(()=>{
+    const left=Math.max(0,endsAt-Date.now());
+    document.getElementById("timer").textContent=
+      "Залишилось: "+Math.ceil(left/1000)+" c";
+  },250);
+}
+
+function stopTimer(){
+  if(timer){clearInterval(timer);timer=null;}
+}
+
+socket.on("joined",d=>{
+  playerToken=d.player_token;
+  pin=document.getElementById("pinInput").value.trim();
+
+  localStorage.setItem("player_token",playerToken);
+  localStorage.setItem("pin",pin);
+
+  document.getElementById("joinBox").style.display="none";
+  document.getElementById("gameBox").style.display="block";
+});
+
+socket.on("question_started",d=>{
+  answered=false;
+  document.getElementById("status").textContent="";
+
+  document.getElementById("question").textContent=d.text;
+  answersEl.innerHTML="";
+
+  endsAt=d.ends_at*1000;
+
+  d.options.forEach((opt,i)=>{
+    const b=document.createElement("button");
+    b.textContent=opt;
+    b.className="answer"+i;
+
+    b.onclick=()=>{
+      if(answered) return;
+
+      answered=true;
+      disableAnswers();
+      document.getElementById("status").textContent="Відповідь прийнята";
+
+      socket.emit("submit_answer",{
+        pin,
+        player_token:playerToken,
+        option:i
+      });
+    };
+
+    answersEl.appendChild(b);
+  });
+
+  startTimer();
+});
+
+socket.on("question_results",d=>{
+  stopTimer();
+  disableAnswers();
+  renderLeaderboard(d.leaderboard);
+});
+
+socket.on("game_finished",d=>{
+  stopTimer();
+  renderLeaderboard(d.leaderboard);
+  document.getElementById("status").textContent="Гру завершено";
+});
+
+socket.on("connect",()=>{
+  if(pin && playerToken){
+    socket.emit("reconnect_player",{pin,player_token:playerToken});
+  }
+});
+
+socket.on("reconnected",d=>{
+  document.getElementById("joinBox").style.display="none";
+  document.getElementById("gameBox").style.display="block";
+
+  if(d.question){
+    document.getElementById("question").textContent=d.question.text;
+    endsAt=d.question.ends_at*1000;
+    answered=false;
+    startTimer();
+  }
+
+  if(d.results){
+    renderLeaderboard(d.results.leaderboard);
+  }
+});
+</script>
+
+</body>
+</html>

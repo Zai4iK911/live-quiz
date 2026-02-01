@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Live Quiz – Host</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui,Segoe UI,Arial;
+  background:linear-gradient(135deg,#4f46e5,#9333ea);
+  color:white;
+}
+
+.container{
+  max-width:900px;
+  margin:auto;
+  padding:20px;
+}
+
+.card{
+  background:rgba(255,255,255,0.1);
+  border-radius:18px;
+  padding:20px;
+  margin-bottom:20px;
+}
+
+button{
+  border:none;
+  border-radius:14px;
+  padding:14px 22px;
+  font-size:18px;
+  cursor:pointer;
+  background:#22c55e;
+  color:black;
+  margin:5px;
+}
+
+button.secondary{
+  background:#38bdf8;
+}
+
+h1,h2,h3{margin-top:0}
+
+.list div{
+  padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,0.2);
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>🎮 Host</h1>
+
+<div class="card">
+  <button id="create">Створити гру</button>
+
+  <div id="roomBox" style="display:none">
+    <h2>PIN: <span id="pin"></span></h2>
+    <button id="start">Старт</button>
+    <button class="secondary" id="next">Наступне питання</button>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Події</h3>
+  <div id="log" class="list"></div>
+</div>
+
+<div class="card">
+  <h3>Рейтинг</h3>
+  <div id="leaderboard" class="list"></div>
+</div>
+
+</div>
+
+<script>
+const socket = io();
+
+let pin = localStorage.getItem("pin");
+let hostToken = localStorage.getItem("host_token");
+
+const logEl = document.getElementById("log");
+const lbEl  = document.getElementById("leaderboard");
+
+function log(msg){
+  const d = document.createElement("div");
+  d.textContent = msg;
+  logEl.prepend(d);
+}
+
+function renderLeaderboard(list){
+  lbEl.innerHTML = "";
+  list.forEach((p,i)=>{
+    const d = document.createElement("div");
+    d.textContent = `${i+1}. ${p.name} — ${p.score}`;
+    lbEl.appendChild(d);
+  });
+}
+
+document.getElementById("create").onclick = () => {
+  socket.emit("create_room");
+};
+
+document.getElementById("start").onclick = () => {
+  socket.emit("start_game",{pin,host_token:hostToken});
+};
+
+document.getElementById("next").onclick = () => {
+  socket.emit("next_question",{pin,host_token:hostToken});
+};
+
+socket.on("room_created", data=>{
+  pin = data.pin;
+  hostToken = data.host_token;
+
+  localStorage.setItem("pin",pin);
+  localStorage.setItem("host_token",hostToken);
+
+  document.getElementById("roomBox").style.display="block";
+  document.getElementById("pin").textContent=pin;
+
+  log("Гру створено");
+});
+
+socket.on("player_joined", d=>{
+  log("Приєднався: "+d.name);
+});
+
+socket.on("question_started", d=>{
+  log("Питання: "+d.text);
+  lbEl.innerHTML="";
+});
+
+socket.on("question_results", d=>{
+  log("Раунд завершено");
+  renderLeaderboard(d.leaderboard);
+});
+
+socket.on("game_finished", d=>{
+  log("Гра завершена");
+  renderLeaderboard(d.leaderboard);
+});
+
+socket.on("connect",()=>{
+  if(pin && hostToken){
+    socket.emit("reconnect_host",{pin,host_token:hostToken});
+  }
+});
+
+socket.on("host_reconnected", d=>{
+  document.getElementById("roomBox").style.display="block";
+  document.getElementById("pin").textContent=pin;
+  log("Host відновив зʼєднання");
+  if(d.players) renderLeaderboard(d.players);
+});
+</script>
+
+</body>
+</html>
